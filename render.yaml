@@ -43,7 +43,6 @@ services:
   - type: web
     name: ziryabfront
     runtime: static
-    region: frankfurt
     repo: https://github.com/AntonioSalces/ZiryabFront
     branch: main
     buildCommand: npm ci && npm run build
@@ -52,6 +51,7 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+
 
 databases:
   - name: ziryab-db
