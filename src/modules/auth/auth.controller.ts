@@ -148,7 +148,7 @@ export class AuthController {
 
       const user = isLegacyTestLogin
         ? await AuthService.loginByEmail(email)
-        : await AuthService.loginUser(await AuthService.verifyFirebaseToken(token));
+        : await AuthService.loginUser(await AuthService.getFirebaseIdentity(token));
 
       if (isLegacyTestLogin && !AuthService.validateLegacyTestPassword(email, password)) {
         return res.status(401).json({
@@ -169,13 +169,9 @@ export class AuthController {
       const msg = (error as Error).message;
       logger.warn(`Login fallido (${email ?? 'sin email'}): ${msg}`);
 
-      if (
-        msg.includes('Credenciales inválidas') ||
-        msg.includes('Usuario no encontrado')
-      ) {
+      if (msg.includes('Credenciales inválidas')) {
         return res.status(401).json({
-          message:
-            'Usuario no encontrado en la base de datos. Si usas cuentas demo, ejecuta npm run seed:demo.',
+          message: 'Credenciales inválidas',
           error: msg,
         });
       }

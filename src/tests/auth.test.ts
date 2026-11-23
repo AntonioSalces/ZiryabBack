@@ -18,6 +18,11 @@ describe('Auth Endpoints', () => {
 
   beforeAll(() => {
     jest.spyOn(AuthService, 'verifyFirebaseToken').mockResolvedValue(firebaseUID);
+    jest.spyOn(AuthService, 'getFirebaseIdentity').mockResolvedValue({
+      uid: firebaseUID,
+      email: registerPayload.email,
+      name: registerPayload.name,
+    });
   });
 
   afterAll(() => {
@@ -78,6 +83,25 @@ describe('Auth Endpoints', () => {
         .send({});
 
       expect(res.status).toBe(400);
+    });
+
+    it('debe aprovisionar STUDENT si Firebase es válido y no hay fila en BD', async () => {
+      const newUid = `uid_provision_${Date.now()}`;
+      const newEmail = `provision${Date.now()}@example.com`;
+      jest.spyOn(AuthService, 'getFirebaseIdentity').mockResolvedValueOnce({
+        uid: newUid,
+        email: newEmail,
+        name: 'Provisioned',
+      });
+
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ token: firebaseToken });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.email).toBe(newEmail);
+      expect(res.body.data.role).toBe('STUDENT');
+      expect(res.body.data.firebaseUID).toBe(newUid);
     });
   });
 });

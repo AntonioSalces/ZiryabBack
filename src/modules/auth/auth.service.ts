@@ -36,6 +36,13 @@ export interface UserWithToken {
   token: string;
 }
 
+/** Identidad extraída del ID token de Firebase tras verificar firma. */
+export interface FirebaseIdentity {
+  uid: string;
+  email: string;
+  name?: string;
+}
+
 // ============================================
 // TIPOS INTERNOS
 // ============================================
@@ -61,15 +68,31 @@ const legacyTestPasswords = new Map<string, string>();
 
 export class AuthService {
   /**
-   * Verifica el token de Firebase y obtiene el UID
+   * Verifica el ID token de Firebase y extrae uid + email (+ name si viene).
    */
-  static async verifyFirebaseToken(token: string): Promise<string> {
+  static async getFirebaseIdentity(token: string): Promise<FirebaseIdentity> {
     try {
       const decodedToken = await firebaseAuth.verifyIdToken(token);
-      return decodedToken.uid;
+      const email = decodedToken.email?.trim();
+      if (!email) {
+        throw new Error('Token de Firebase sin email');
+      }
+      return {
+        uid: decodedToken.uid,
+        email,
+        name: decodedToken.name?.trim() || email.split('@')[0],
+      };
     } catch (error) {
       throw new Error(`Token de Firebase inválido: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Verifica el token de Firebase y obtiene el UID
+   */
+  static async verifyFirebaseToken(token: string): Promise<string> {
+    const identity = await this.getFirebaseIdentity(token);
+    return identity.uid;
   }
 
   /**
@@ -201,13 +224,64 @@ export class AuthService {
   }
 
   /**
-   * Login: obtiene usuario existente por firebaseUID
+   * Vincula un firebaseUID a un usuario local ya existente (mismo email).
    */
-  static async loginUser(firebaseUID: string): Promise<UserWithToken> {
-    const user = await this.findUserByFirebaseUID(firebaseUID);
+  static async linkFirebaseUid(user: User, firebaseUID: string): Promise<User> {
+    if (user.role === 'STUDENT') {
+      return prisma.student.update({
+        where: { id: user.id },
+        data: { firebaseUID },
+      });
+    }
+    if (user.role === 'TEACHER') {
+      return prisma.teacher.update({
+        where: { id: user.id },
+        data: { firebaseUID },
+      });
+    }
+    return prisma.admin.update({
+      where: { id: user.id },
+      data: { firebaseUID },
+    });
+  }
+
+  /**
+   * Crea un Student mínimo a partir de la identidad Firebase (primer login).
+   * El perfil completo (DNI, apellidos reales, etc.) se puede completar después.
+   */
+  static async provisionStudentFromFirebase(identity: FirebaseIdentity): Promise<User> {
+    const displayName = (identity.name?.trim() || identity.email.split('@')[0]).slice(0, 100);
+    return prisma.student.create({
+      data: {
+        firebaseUID: identity.uid,
+        email: identity.email,
+        name: displayName,
+        surname: 'Pendiente',
+        ndSurname: null,
+        birthDate: new Date('2000-01-01T00:00:00.000Z'),
+        dni: null,
+        role: 'STUDENT',
+      },
+    });
+  }
+
+  /**
+   * Login: busca por firebaseUID; si no existe, enlaza por email o crea STUDENT.
+   */
+  static async loginUser(identity: FirebaseIdentity): Promise<UserWithToken> {
+    let user = await this.findUserByFirebaseUID(identity.uid);
 
     if (!user) {
-      throw new Error('Usuario no encontrado en BD local');
+      const byEmail = await this.findUserByEmail(identity.email);
+      if (byEmail) {
+        user = await this.linkFirebaseUid(byEmail, identity.uid);
+        logger.info(`Login: vinculado firebaseUID a usuario existente ${identity.email}`);
+      }
+    }
+
+    if (!user) {
+      user = await this.provisionStudentFromFirebase(identity);
+      logger.info(`Login: aprovisionado STUDENT para ${identity.email}`);
     }
 
     const jwtToken = this.generateJWT({
@@ -217,7 +291,6 @@ export class AuthService {
       role: user.role,
     });
 
-    // ✅ Retorno tipado
     return {
       id: user.id,
       email: user.email,
