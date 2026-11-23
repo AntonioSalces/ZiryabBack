@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 /** API desplegada en Render (sin barra final). */
-export const PRODUCTION_API_URL = 'https://ziryabback.onrender.com';
+export const PRODUCTION_API_URL = 'https://ziryabback-rxoi.onrender.com';
 
 const modulesDir = join(__dirname, '../modules');
 
